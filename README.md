@@ -127,6 +127,14 @@ For LLMs and other CLIs, read this file before generating commands:
 docs/LIVE_MEMORY_EVENT_SYSTEM.md
 ```
 
+If a CLI gets stuck with an internal error, protobuf mismatch, unknown message type, or unclear server behavior, use the original OrikaServer proto/source repo as the fallback reference:
+
+```text
+https://github.com/abhishek43501/orikaserver_proto
+```
+
+Clone and inspect `ProtoFile/*.proto`, `OrikaServer/server/Server.cpp`, `OrikaServer/StaticClass.cpp`, `OrikaServer/Manager.cpp`, and `OrikaServer/ProtoMessageConverter.cpp`.
+
 ## What the stream sends
 
 Orders:

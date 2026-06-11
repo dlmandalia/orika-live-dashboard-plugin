@@ -198,6 +198,39 @@ on CLIENT_POSITION.update where clientfloatingpl < -limit -> risk alert
 
 Rules should not open a second WebSocket. They should consume the existing live memory/event output.
 
+## Authoritative fallback source repo
+
+If a CLI/LLM gets stuck, sees an internal error, protobuf mismatch, unknown message type, or cannot understand the server behavior from this plugin alone, it should inspect the original OrikaServer proto/source repository:
+
+```text
+https://github.com/abhishek43501/orikaserver_proto
+```
+
+Recommended fallback workflow:
+
+```bash
+git clone https://github.com/abhishek43501/orikaserver_proto.git
+```
+
+Then inspect:
+
+```text
+ProtoFile/clientmessage.proto
+ProtoFile/loginrequest.proto
+ProtoFile/loginresponse.proto
+ProtoFile/FetchClientPositions.proto
+ProtoFile/ActiveColumnChanged.proto
+ProtoFile/ClientpositionInsertandUpdate.proto
+ProtoFile/OrderData.proto
+ProtoFile/DealingData.proto
+OrikaServer/server/Server.cpp
+OrikaServer/StaticClass.cpp
+OrikaServer/Manager.cpp
+OrikaServer/ProtoMessageConverter.cpp
+```
+
+Use that repo as the authoritative reference for protobuf envelope fields, request/response type names, and C++ server-side subscription behavior.
+
 ## C++ server evidence used
 
 The developer-provided C++ source shows that these requests are long-lived server-side subscriptions/state flags, not one-shot HTTP calls.
@@ -205,6 +238,7 @@ The developer-provided C++ source shows that these requests are long-lived serve
 Important files in the source repo:
 
 ```text
+https://github.com/abhishek43501/orikaserver_proto
 OrikaServer/server/Server.cpp
 OrikaServer/StaticClass.cpp
 OrikaServer/Manager.cpp
