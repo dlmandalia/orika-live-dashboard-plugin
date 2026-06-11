@@ -125,6 +125,7 @@ def start_stream(args: dict, **kwargs) -> str:
         "env_file": str(env_path),
         "output_dir": str(out_path),
         "events_jsonl": str(out_path / "events.jsonl"),
+        "state_json": str(out_path / "state.json"),
         "orders_csv": str(out_path / "orders_snapshot.csv"),
         "deals_csv": str(out_path / "deals_snapshot.csv"),
         "positions_csv": str(out_path / "positions_snapshot.csv"),
@@ -150,10 +151,64 @@ def status_stream(args: dict, **kwargs) -> str:
     output_dir = Path(meta.get("output_dir", "")) if meta.get("output_dir") else None
     files = {}
     if output_dir:
-        for name in ["events.jsonl", "orders_snapshot.csv", "deals_snapshot.csv", "positions_snapshot.csv"]:
+        for name in ["events.jsonl", "state.json", "orders_snapshot.csv", "deals_snapshot.csv", "positions_snapshot.csv"]:
             p = output_dir / name
             files[name] = {"path": str(p), "exists": p.exists(), "bytes": p.stat().st_size if p.exists() else 0}
     return _json(success=True, running=running, pid=pid, meta=meta, files=files, log=str(LOG_FILE), log_tail=_tail(LOG_FILE, 2000))
+
+
+def query_stream(args: dict, **kwargs) -> str:
+    """Query current live memory from state.json without opening a WebSocket."""
+    del kwargs
+    meta = _read_meta()
+    state_file = args.get("state_file") or meta.get("state_json")
+    if not state_file and meta.get("output_dir"):
+        state_file = str(Path(meta["output_dir"]) / "state.json")
+    if not state_file:
+        return _json(success=False, error="No state_file provided and no prior stream metadata found")
+    p = Path(state_file)
+    if not p.exists():
+        return _json(success=False, error=f"state.json not found: {p}")
+    try:
+        state = json.loads(p.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return _json(success=False, error=f"failed to read state.json: {exc}", path=str(p))
+
+    stream = (args.get("stream") or "summary").lower()
+    key = args.get("key")
+    field = args.get("field")
+    equals = args.get("equals")
+    limit = int(args.get("limit") or 20)
+
+    if stream == "summary":
+        return _json(
+            success=True,
+            path=str(p),
+            status=state.get("status"),
+            updated_at=state.get("updated_at"),
+            totals=state.get("totals"),
+            counts=state.get("counts"),
+            streams=state.get("streams"),
+            last_event=state.get("last_event"),
+        )
+    if stream not in {"orders", "deals", "positions"}:
+        return _json(success=False, error="stream must be one of: summary, orders, deals, positions")
+
+    table = state.get("data", {}).get(stream, {})
+    if not isinstance(table, dict):
+        table = {}
+    if key:
+        row = table.get(key)
+        if row is None:
+            return _json(success=False, stream=stream, key=key, error="not found")
+        if field:
+            return _json(success=True, stream=stream, key=key, field=field, value=row.get(field), updated_at=state.get("updated_at"))
+        return _json(success=True, stream=stream, key=key, row=row, updated_at=state.get("updated_at"))
+
+    rows = list(table.values())
+    if field and equals is not None:
+        rows = [r for r in rows if str(r.get(field, "")) == str(equals)]
+    return _json(success=True, stream=stream, total=len(table), returned=min(len(rows), limit), rows=rows[:limit], updated_at=state.get("updated_at"))
 
 
 def stop_stream(args: dict, **kwargs) -> str:

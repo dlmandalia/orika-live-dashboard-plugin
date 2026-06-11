@@ -19,3 +19,8 @@ test_cli_deals_output/
 test_cli_positions_output/
 orika_live_output/
 tool_test_output/
+
+# Orika live memory/event output
+*.jsonl
+state.json
+*.tmp

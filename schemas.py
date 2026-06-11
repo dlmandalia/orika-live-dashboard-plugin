@@ -5,36 +5,17 @@ START_SCHEMA = {
     "description": (
         "Start a background Orika CLI live stream. The process connects to the Orika "
         "binary protobuf WebSocket, logs in from a local .env file, keeps the socket open, "
-        "and writes live orders/deals/positions to JSONL plus CSV snapshots."
+        "maintains orders/deals/positions in memory, and writes events.jsonl, state.json, "
+        "and CSV snapshots."
     ),
     "parameters": {
         "type": "object",
         "properties": {
-            "mode": {
-                "type": "string",
-                "description": "Comma-separated streams: orders,deals,positions,all. Default: all.",
-                "default": "all",
-            },
-            "env_file": {
-                "type": "string",
-                "description": "Path to .env containing ORIKA_WS_URL, ORIKA_LOGIN, ORIKA_PASSWORD, ORIKA_SERIAL_NO. Default: .env in current working directory.",
-                "default": ".env",
-            },
-            "output_dir": {
-                "type": "string",
-                "description": "Directory where events.jsonl and CSV snapshots are written. Default: orika_live_output.",
-                "default": "orika_live_output",
-            },
-            "snapshot_interval": {
-                "type": "integer",
-                "description": "Seconds between CSV snapshot writes. Default: 300.",
-                "default": 300,
-            },
-            "duration": {
-                "type": "integer",
-                "description": "Optional stop-after seconds. 0 means run forever. Default: 0.",
-                "default": 0,
-            },
+            "mode": {"type": "string", "description": "Comma-separated streams: orders,deals,positions,all. Default: all.", "default": "all"},
+            "env_file": {"type": "string", "description": "Path to .env containing ORIKA_WS_URL, ORIKA_LOGIN, ORIKA_PASSWORD, ORIKA_SERIAL_NO. Default: .env in current working directory.", "default": ".env"},
+            "output_dir": {"type": "string", "description": "Directory where events.jsonl, state.json and CSV snapshots are written. Default: orika_live_output.", "default": "orika_live_output"},
+            "snapshot_interval": {"type": "integer", "description": "Seconds between CSV/state snapshot writes. Default: 300.", "default": 300},
+            "duration": {"type": "integer", "description": "Optional stop-after seconds. 0 means run forever. Default: 0.", "default": 0},
         },
         "required": [],
     },
@@ -42,8 +23,25 @@ START_SCHEMA = {
 
 STATUS_SCHEMA = {
     "name": "orika_stream_status",
-    "description": "Check whether the Orika CLI live stream process is running and where it writes data.",
+    "description": "Check whether the Orika CLI live stream process is running and where it writes live memory state.",
     "parameters": {"type": "object", "properties": {}, "required": []},
+}
+
+QUERY_SCHEMA = {
+    "name": "orika_stream_query",
+    "description": "Query current live-memory data from state.json without reconnecting to Orika.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "stream": {"type": "string", "description": "orders, deals, positions, or summary. Default: summary.", "default": "summary"},
+            "key": {"type": "string", "description": "Optional exact row key. Orders use order id; deals use id; positions use login:symbol."},
+            "field": {"type": "string", "description": "Optional field to return for a key, or field to filter with equals."},
+            "equals": {"type": "string", "description": "Optional filter value used with field."},
+            "limit": {"type": "integer", "description": "Maximum rows returned for list queries. Default: 20.", "default": 20},
+            "state_file": {"type": "string", "description": "Optional explicit path to state.json. Defaults to last started stream's output_dir/state.json."},
+        },
+        "required": [],
+    },
 }
 
 STOP_SCHEMA = {

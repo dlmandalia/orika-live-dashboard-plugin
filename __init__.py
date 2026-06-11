@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 try:
-    from .schemas import START_SCHEMA, STATUS_SCHEMA, STOP_SCHEMA
-    from .tools import start_stream, status_stream, stop_stream
+    from .schemas import QUERY_SCHEMA, START_SCHEMA, STATUS_SCHEMA, STOP_SCHEMA
+    from .tools import query_stream, start_stream, status_stream, stop_stream
 except ImportError:  # pragma: no cover - loader compatibility fallback
-    from schemas import START_SCHEMA, STATUS_SCHEMA, STOP_SCHEMA
-    from tools import start_stream, status_stream, stop_stream
+    from schemas import QUERY_SCHEMA, START_SCHEMA, STATUS_SCHEMA, STOP_SCHEMA
+    from tools import query_stream, start_stream, status_stream, stop_stream
 
 
 def register(ctx) -> None:
@@ -25,6 +25,14 @@ def register(ctx) -> None:
         handler=status_stream,
         description="Check Orika CLI live stream status and output paths.",
         emoji="🩺",
+    )
+    ctx.register_tool(
+        name="orika_stream_query",
+        toolset="orika_live_data",
+        schema=QUERY_SCHEMA,
+        handler=query_stream,
+        description="Query live-memory orders/deals/positions from state.json without reconnecting.",
+        emoji="🔎",
     )
     ctx.register_tool(
         name="orika_stream_stop",

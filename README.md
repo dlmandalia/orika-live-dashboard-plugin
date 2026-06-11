@@ -7,8 +7,10 @@ This is the main supported flow:
 - connect to Orika WebSocket
 - login using credentials from a local `.env`
 - keep the socket open
+- maintain live in-memory tables for orders, deals, and positions
 - stream live orders, deals, and positions
-- write `events.jsonl` plus CSV snapshots
+- write `events.jsonl`, `state.json`, and CSV snapshots
+- let other commands query `state.json` without opening another WebSocket
 
 The old AG Grid HTML files remain under `app/` only as optional/manual viewing helpers. They are not the plugin interface.
 
@@ -24,6 +26,7 @@ The plugin exposes these tools:
 
 - `orika_stream_start`
 - `orika_stream_status`
+- `orika_stream_query`
 - `orika_stream_stop`
 
 Ask Hermes:
@@ -89,12 +92,40 @@ Files:
 
 ```text
 events.jsonl             append-only live event log
+state.json               current live in-memory state for queries
 orders_snapshot.csv      latest merged order table
 deals_snapshot.csv       latest merged deal table
 positions_snapshot.csv   latest merged positions table
 ```
 
-`events.jsonl` contains full event data. CSV snapshot files are rewritten every `--snapshot-interval` seconds and again on clean shutdown.
+`events.jsonl` contains full event data. `state.json` is written atomically and contains the current in-memory tables. CSV snapshot files are rewritten every `--snapshot-interval` seconds and again on clean shutdown.
+
+## Query live memory without reconnecting
+
+Once the stream is running, use the query tool or the CLI helper. This reads `state.json`; it does not create a second Orika WebSocket connection.
+
+```text
+orika_stream_query stream=summary
+orika_stream_query stream=orders limit=20
+orika_stream_query stream=positions key=LOGIN:SYMBOL
+orika_stream_query stream=positions key=LOGIN:SYMBOL field=volume
+```
+
+Manual query helper:
+
+```bash
+python app/orika_query_state.py --state-file orika_live_output/state.json --stream summary
+python app/orika_query_state.py --state-file orika_live_output/state.json --stream orders --limit 20
+python app/orika_query_state.py --state-file orika_live_output/state.json --stream positions --key LOGIN:SYMBOL --field volume
+```
+
+## Live memory/event-management docs
+
+For LLMs and other CLIs, read this file before generating commands:
+
+```text
+docs/LIVE_MEMORY_EVENT_SYSTEM.md
+```
 
 ## What the stream sends
 
@@ -144,9 +175,11 @@ After plugin packaging:
 plugin.yaml              Hermes plugin manifest
 __init__.py              Registers Hermes tools
 schemas.py               Tool schemas shown to Hermes
-tools.py                 Tool handlers to start/status/stop CLI stream
-app/orika_live_cli.py    Main CLI streamer
+tools.py                 Tool handlers to start/status/query/stop CLI stream
+app/orika_live_cli.py    Main CLI streamer; owns WebSocket and live memory
+app/orika_query_state.py Query state.json without reconnecting
 app/generated/*.py       Generated Orika protobuf bindings
+docs/LIVE_MEMORY_EVENT_SYSTEM.md LLM/CLI guide for live memory and event management
 ```
 
 ## Security
