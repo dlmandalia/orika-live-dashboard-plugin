@@ -12,3 +12,10 @@ orders_deals/
 .DS_Store
 .vscode/
 .idea/
+
+# local CLI stream test output
+test_cli_output/
+test_cli_deals_output/
+test_cli_positions_output/
+orika_live_output/
+tool_test_output/

@@ -15,10 +15,11 @@ jobs:
           python-version: '3.11'
       - name: Compile plugin and app
         run: |
-          python -m py_compile __init__.py schemas.py tools.py app/live_orders_server.py
+          python -m py_compile __init__.py schemas.py tools.py app/orika_live_cli.py app/live_orders_server.py
       - name: Check expected files
         run: |
           test -f plugin.yaml
-          test -f app/live_orders.html
-          test -f app/live_deals.html
+          test -f app/orika_live_cli.py
           test -f app/generated/clientmessage_pb2.py
+          grep -q orika_stream_start plugin.yaml
+          ! grep -q orika_dashboard_start plugin.yaml

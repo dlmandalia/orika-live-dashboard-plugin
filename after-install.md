@@ -1,14 +1,18 @@
-# Orika Live Dashboard Installed
+# Orika Live Data Plugin Installed
 
-Start from Hermes by asking:
+Start the CLI live stream from Hermes by asking:
 
 ```text
-Start the Orika dashboard
+Start the Orika live stream using .env and write all data to orika_live_output
 ```
 
-Then open:
+The stream connects to Orika, stays live, and writes:
 
-- Orders: http://127.0.0.1:8080/
-- Deals: http://127.0.0.1:8080/deals
+```text
+orika_live_output/events.jsonl
+orika_live_output/orders_snapshot.csv
+orika_live_output/deals_snapshot.csv
+orika_live_output/positions_snapshot.csv
+```
 
-Credentials are entered in the browser and are not saved.
+Credentials must be in your local `.env`. They are not saved by the plugin.

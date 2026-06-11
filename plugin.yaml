@@ -1,9 +1,9 @@
-name: orika-live-dashboard
-version: 1.0.0
-description: "Orika live orders and live deals AG Grid dashboard. Starts a local browser dashboard that connects to Orika WebSocket with user-entered credentials; credentials are not saved."
+name: orika-live-data
+version: 1.1.0
+description: "Orika CLI live data plugin. Connects to Orika WebSocket, stays live, and streams orders, deals, and positions to JSONL/CSV files. Credentials stay in local .env files."
 author: Dipen / Hermes Agent
 kind: general
 provides_tools:
-  - orika_dashboard_start
-  - orika_dashboard_status
-  - orika_dashboard_stop
+  - orika_stream_start
+  - orika_stream_status
+  - orika_stream_stop

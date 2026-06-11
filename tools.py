@@ -1,7 +1,7 @@
-"""Runtime tool handlers for the Orika live dashboard plugin.
+"""Runtime tool handlers for the Orika CLI live data plugin.
 
-The handlers intentionally do not accept or store Orika credentials. Users enter
-credentials in the browser UI for each session.
+These tools manage a background CLI streamer. They never accept or store Orika
+credentials directly. Credentials must live in the user's local .env file.
 """
 from __future__ import annotations
 
@@ -9,54 +9,30 @@ import json
 import os
 import shutil
 import signal
-import socket
 import subprocess
-import sys
 import time
 from pathlib import Path
-from urllib.error import URLError
-from urllib.request import urlopen
 
 PLUGIN_DIR = Path(__file__).resolve().parent
 APP_DIR = PLUGIN_DIR / "app"
 RUNTIME_DIR = PLUGIN_DIR / ".runtime"
-SERVER_SCRIPT = APP_DIR / "live_orders_server.py"
+STREAM_SCRIPT = APP_DIR / "orika_live_cli.py"
+PID_FILE = RUNTIME_DIR / "orika-stream.pid"
+META_FILE = RUNTIME_DIR / "orika-stream.json"
+LOG_FILE = RUNTIME_DIR / "orika-stream.log"
 
 
 def _json(**data) -> str:
     return json.dumps(data, ensure_ascii=False)
 
 
-def _port_open(port: int) -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.settimeout(0.5)
-        return sock.connect_ex(("127.0.0.1", int(port))) == 0
+def _ensure_runtime() -> None:
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def _health(port: int) -> dict:
+def _read_pid() -> int | None:
     try:
-        raw = urlopen(f"http://127.0.0.1:{int(port)}/health", timeout=2).read().decode("utf-8")
-        return json.loads(raw)
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)}
-
-
-def _pidfile(port: int) -> Path:
-    RUNTIME_DIR.mkdir(exist_ok=True)
-    return RUNTIME_DIR / f"server-{int(port)}.pid"
-
-
-def _logfile(port: int) -> Path:
-    RUNTIME_DIR.mkdir(exist_ok=True)
-    return RUNTIME_DIR / f"server-{int(port)}.log"
-
-
-def _read_pid(port: int) -> int | None:
-    p = _pidfile(port)
-    if not p.exists():
-        return None
-    try:
-        return int(p.read_text(encoding="utf-8").strip())
+        return int(PID_FILE.read_text(encoding="utf-8").strip())
     except Exception:
         return None
 
@@ -66,12 +42,7 @@ def _process_running(pid: int | None) -> bool:
         return False
     try:
         if os.name == "nt":
-            result = subprocess.run(
-                ["tasklist", "/FI", f"PID eq {pid}"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
+            result = subprocess.run(["tasklist", "/FI", f"PID eq {pid}"], capture_output=True, text=True, timeout=5)
             return str(pid) in (result.stdout or "")
         os.kill(pid, 0)
         return True
@@ -79,101 +50,117 @@ def _process_running(pid: int | None) -> bool:
         return False
 
 
-def _urls(port: int) -> dict:
-    base = f"http://127.0.0.1:{int(port)}"
-    return {"orders_url": base + "/", "deals_url": base + "/deals", "health_url": base + "/health"}
+def _read_meta() -> dict:
+    try:
+        return json.loads(META_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
 
 
-def start_dashboard(args: dict, **kwargs) -> str:
+def _tail(path: Path, chars: int = 4000) -> str:
+    try:
+        return path.read_text(encoding="utf-8", errors="ignore")[-chars:]
+    except Exception:
+        return ""
+
+
+def start_stream(args: dict, **kwargs) -> str:
     del kwargs
-    port = int(args.get("port") or 8080)
-    orika_ws_url = args.get("orika_ws_url") or os.getenv("ORIKA_WS_URL", "wss://auttrading.com:86")
+    _ensure_runtime()
+    existing_pid = _read_pid()
+    if _process_running(existing_pid):
+        return _json(success=True, already_running=True, pid=existing_pid, meta=_read_meta(), log=str(LOG_FILE))
 
-    if not SERVER_SCRIPT.exists():
-        return _json(success=False, error=f"Missing server script: {SERVER_SCRIPT}")
-
-    if _port_open(port):
-        health = _health(port)
-        return _json(success=True, already_running=True, port=port, health=health, **_urls(port))
+    if not STREAM_SCRIPT.exists():
+        return _json(success=False, error=f"Missing CLI streamer: {STREAM_SCRIPT}")
 
     uv = shutil.which("uv")
     if not uv:
-        return _json(
-            success=False,
-            error="uv is required to launch the dashboard with isolated dependencies. Install uv or run the app manually with aiohttp/websocket-client/protobuf installed.",
-        )
+        return _json(success=False, error="uv is required. Install uv, then retry.")
 
-    log_path = _logfile(port)
-    log = log_path.open("a", encoding="utf-8")
-    env = os.environ.copy()
-    env["LIVE_ORDERS_PORT"] = str(port)
-    env["ORIKA_WS_URL"] = str(orika_ws_url)
+    mode = args.get("mode") or "all"
+    env_file = args.get("env_file") or ".env"
+    output_dir = args.get("output_dir") or "orika_live_output"
+    snapshot_interval = int(args.get("snapshot_interval") or 300)
+    duration = int(args.get("duration") or 0)
+
+    env_path = Path(env_file)
+    if not env_path.is_absolute():
+        env_path = Path.cwd() / env_path
+    out_path = Path(output_dir)
+    if not out_path.is_absolute():
+        out_path = Path.cwd() / out_path
 
     cmd = [
         uv,
         "run",
-        "--with", "aiohttp",
         "--with", "websocket-client",
         "--with", "protobuf",
         "python",
         "-u",
-        str(SERVER_SCRIPT),
+        str(STREAM_SCRIPT),
+        "--mode", str(mode),
+        "--env-file", str(env_path),
+        "--output-dir", str(out_path),
+        "--snapshot-interval", str(snapshot_interval),
     ]
-    creationflags = 0
-    if os.name == "nt":
-        creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    if duration:
+        cmd.extend(["--duration", str(duration)])
+
+    log_fh = LOG_FILE.open("a", encoding="utf-8")
+    creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0
     proc = subprocess.Popen(
         cmd,
-        cwd=str(APP_DIR),
-        env=env,
-        stdout=log,
+        cwd=str(PLUGIN_DIR),
+        env=os.environ.copy(),
+        stdout=log_fh,
         stderr=subprocess.STDOUT,
         stdin=subprocess.DEVNULL,
         creationflags=creationflags,
     )
-    _pidfile(port).write_text(str(proc.pid), encoding="utf-8")
+    PID_FILE.write_text(str(proc.pid), encoding="utf-8")
+    meta = {
+        "pid": proc.pid,
+        "mode": mode,
+        "env_file": str(env_path),
+        "output_dir": str(out_path),
+        "events_jsonl": str(out_path / "events.jsonl"),
+        "orders_csv": str(out_path / "orders_snapshot.csv"),
+        "deals_csv": str(out_path / "deals_snapshot.csv"),
+        "positions_csv": str(out_path / "positions_snapshot.csv"),
+        "snapshot_interval": snapshot_interval,
+        "duration": duration,
+        "log": str(LOG_FILE),
+        "started_at": time.time(),
+    }
+    META_FILE.write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
-    deadline = time.time() + 20
-    health = {"ok": False, "error": "not checked"}
-    while time.time() < deadline:
-        if proc.poll() is not None:
-            tail = ""
-            try:
-                tail = log_path.read_text(encoding="utf-8", errors="ignore")[-2000:]
-            except Exception:
-                pass
-            return _json(success=False, error=f"Dashboard exited with code {proc.returncode}", log=str(log_path), log_tail=tail)
-        health = _health(port)
-        if health.get("ok"):
-            return _json(success=True, started=True, pid=proc.pid, port=port, log=str(log_path), health=health, **_urls(port))
-        time.sleep(0.5)
-
-    return _json(success=False, error="Dashboard did not become healthy within 20 seconds", pid=proc.pid, log=str(log_path), health=health)
-
-
-def status_dashboard(args: dict, **kwargs) -> str:
-    del kwargs
-    port = int(args.get("port") or 8080)
-    pid = _read_pid(port)
-    health = _health(port)
-    return _json(
-        success=True,
-        port=port,
-        pid=pid,
-        pid_running=_process_running(pid),
-        port_open=_port_open(port),
-        health=health,
-        log=str(_logfile(port)),
-        **_urls(port),
-    )
+    # Give it a moment to fail fast if credentials/deps are wrong.
+    time.sleep(2)
+    if proc.poll() is not None:
+        return _json(success=False, error=f"Stream exited with code {proc.returncode}", log=str(LOG_FILE), log_tail=_tail(LOG_FILE), meta=meta)
+    return _json(success=True, started=True, pid=proc.pid, meta=meta)
 
 
-def stop_dashboard(args: dict, **kwargs) -> str:
-    del kwargs
-    port = int(args.get("port") or 8080)
-    pid = _read_pid(port)
+def status_stream(args: dict, **kwargs) -> str:
+    del args, kwargs
+    pid = _read_pid()
+    meta = _read_meta()
+    running = _process_running(pid)
+    output_dir = Path(meta.get("output_dir", "")) if meta.get("output_dir") else None
+    files = {}
+    if output_dir:
+        for name in ["events.jsonl", "orders_snapshot.csv", "deals_snapshot.csv", "positions_snapshot.csv"]:
+            p = output_dir / name
+            files[name] = {"path": str(p), "exists": p.exists(), "bytes": p.stat().st_size if p.exists() else 0}
+    return _json(success=True, running=running, pid=pid, meta=meta, files=files, log=str(LOG_FILE), log_tail=_tail(LOG_FILE, 2000))
+
+
+def stop_stream(args: dict, **kwargs) -> str:
+    del args, kwargs
+    pid = _read_pid()
     if not pid:
-        return _json(success=True, stopped=False, message="No pid file found", port=port)
+        return _json(success=True, stopped=False, message="No stream pid file found")
     try:
         if os.name == "nt":
             subprocess.run(["taskkill", "/PID", str(pid), "/F", "/T"], capture_output=True, text=True, timeout=10)
@@ -181,9 +168,9 @@ def stop_dashboard(args: dict, **kwargs) -> str:
             os.kill(pid, signal.SIGTERM)
         time.sleep(0.5)
         try:
-            _pidfile(port).unlink()
+            PID_FILE.unlink()
         except FileNotFoundError:
             pass
-        return _json(success=True, stopped=True, pid=pid, port=port)
+        return _json(success=True, stopped=True, pid=pid, meta=_read_meta())
     except Exception as exc:
-        return _json(success=False, error=str(exc), pid=pid, port=port)
+        return _json(success=False, error=str(exc), pid=pid)

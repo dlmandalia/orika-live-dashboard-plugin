@@ -1,24 +1,39 @@
-"""Tool schemas for the Orika live dashboard plugin."""
+"""Tool schemas for the Orika CLI live data plugin."""
 
 START_SCHEMA = {
-    "name": "orika_dashboard_start",
+    "name": "orika_stream_start",
     "description": (
-        "Start the local Orika live orders/deals dashboard server. "
-        "The dashboard opens in a browser at http://127.0.0.1:<port>/ for orders "
-        "and /deals for live deals. Credentials are entered in the browser and are not saved."
+        "Start a background Orika CLI live stream. The process connects to the Orika "
+        "binary protobuf WebSocket, logs in from a local .env file, keeps the socket open, "
+        "and writes live orders/deals/positions to JSONL plus CSV snapshots."
     ),
     "parameters": {
         "type": "object",
         "properties": {
-            "port": {
-                "type": "integer",
-                "description": "Local port for the dashboard server. Default: 8080.",
-                "default": 8080,
-            },
-            "orika_ws_url": {
+            "mode": {
                 "type": "string",
-                "description": "Default Orika WebSocket URL shown in the page. Default: wss://auttrading.com:86.",
-                "default": "wss://auttrading.com:86",
+                "description": "Comma-separated streams: orders,deals,positions,all. Default: all.",
+                "default": "all",
+            },
+            "env_file": {
+                "type": "string",
+                "description": "Path to .env containing ORIKA_WS_URL, ORIKA_LOGIN, ORIKA_PASSWORD, ORIKA_SERIAL_NO. Default: .env in current working directory.",
+                "default": ".env",
+            },
+            "output_dir": {
+                "type": "string",
+                "description": "Directory where events.jsonl and CSV snapshots are written. Default: orika_live_output.",
+                "default": "orika_live_output",
+            },
+            "snapshot_interval": {
+                "type": "integer",
+                "description": "Seconds between CSV snapshot writes. Default: 300.",
+                "default": 300,
+            },
+            "duration": {
+                "type": "integer",
+                "description": "Optional stop-after seconds. 0 means run forever. Default: 0.",
+                "default": 0,
             },
         },
         "required": [],
@@ -26,25 +41,13 @@ START_SCHEMA = {
 }
 
 STATUS_SCHEMA = {
-    "name": "orika_dashboard_status",
-    "description": "Check if the local Orika dashboard server is running and return the orders/deals URLs.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "port": {"type": "integer", "description": "Local dashboard port. Default: 8080.", "default": 8080},
-        },
-        "required": [],
-    },
+    "name": "orika_stream_status",
+    "description": "Check whether the Orika CLI live stream process is running and where it writes data.",
+    "parameters": {"type": "object", "properties": {}, "required": []},
 }
 
 STOP_SCHEMA = {
-    "name": "orika_dashboard_stop",
-    "description": "Stop the local Orika dashboard server started by orika_dashboard_start.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "port": {"type": "integer", "description": "Local dashboard port. Default: 8080.", "default": 8080},
-        },
-        "required": [],
-    },
+    "name": "orika_stream_stop",
+    "description": "Stop the Orika CLI live stream process started by orika_stream_start.",
+    "parameters": {"type": "object", "properties": {}, "required": []},
 }
