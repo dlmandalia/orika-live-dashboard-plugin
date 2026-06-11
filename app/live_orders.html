@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Orika Live Orders</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community/styles/ag-grid.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community/styles/ag-theme-quartz.css" />
+  <script src="https://cdn.jsdelivr.net/npm/ag-grid-community/dist/ag-grid-community.min.js"></script>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: #0f172a;
+      color: #e5e7eb;
+    }
+    header {
+      padding: 14px 18px;
+      background: #111827;
+      border-bottom: 1px solid #334155;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    h1 { margin: 0; font-size: 20px; }
+    .panel {
+      padding: 12px 18px;
+      display: grid;
+      grid-template-columns: 260px 150px 180px 150px auto auto;
+      gap: 10px;
+      align-items: end;
+      background: #0b1220;
+      border-bottom: 1px solid #1f2937;
+    }
+    label { display: grid; gap: 5px; font-size: 12px; color: #cbd5e1; }
+    input {
+      padding: 9px 10px;
+      border: 1px solid #334155;
+      border-radius: 7px;
+      background: #020617;
+      color: #e5e7eb;
+      outline: none;
+    }
+    input:focus { border-color: #38bdf8; }
+    button {
+      padding: 10px 14px;
+      border: 0;
+      border-radius: 7px;
+      color: white;
+      cursor: pointer;
+      font-weight: 700;
+    }
+    #connectBtn { background: #0284c7; }
+    #disconnectBtn { background: #b91c1c; }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
+    .stats {
+      padding: 10px 18px;
+      display: flex;
+      gap: 18px;
+      flex-wrap: wrap;
+      color: #cbd5e1;
+      font-size: 13px;
+      background: #111827;
+      border-bottom: 1px solid #1f2937;
+    }
+    #eventLog {
+      max-height: 78px;
+      overflow: auto;
+      padding: 8px 18px;
+      background: #020617;
+      border-bottom: 1px solid #1f2937;
+      color: #94a3b8;
+      font-family: Consolas, Monaco, monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+    }
+    .status-ok { color: #86efac; }
+    .status-warn { color: #fde68a; }
+    .status-err { color: #fca5a5; }
+    #grid { height: calc(100vh - 176px); width: 100%; }
+    .hint { color: #94a3b8; font-size: 12px; }
+    @media (max-width: 980px) {
+      .panel { grid-template-columns: 1fr 1fr; }
+      #grid { height: calc(100vh - 250px); }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Orika Live Orders</h1>
+    <div class="hint">Credentials are used only in this browser session and are not saved by this page.</div>
+  </header>
+
+  <section class="panel">
+    <label>
+      Orika WebSocket URL
+      <input id="url" value="wss://auttrading.com:86" autocomplete="off" />
+    </label>
+    <label>
+      Username / Login
+      <input id="login" autocomplete="username" placeholder="Enter login" />
+    </label>
+    <label>
+      Password
+      <input id="password" type="password" autocomplete="current-password" placeholder="Enter password" />
+    </label>
+    <label>
+      Serial No
+      <input id="serialNo" value="*" autocomplete="off" />
+    </label>
+    <button id="connectBtn">Connect</button>
+    <button id="disconnectBtn" disabled>Disconnect</button>
+  </section>
+
+  <section class="stats">
+    <div>Status: <span id="status" class="status-warn">Not connected</span></div>
+    <div>Rows: <span id="rowCount">0</span></div>
+    <div>Upserts: <span id="upsertCount">0</span></div>
+    <div>Deletes: <span id="deleteCount">0</span></div>
+    <div>Last event: <span id="lastEvent">-</span></div>
+  </section>
+  <div id="eventLog">Waiting. Enter credentials and click Connect.</div>
+
+  <div id="grid" class="ag-theme-quartz-dark"></div>
+
+  <script>
+    const orderFields = [
+      'login', 'time', 'deal', 'order', 'symbol', 'type', 'volume', 'price',
+      'comment', 'status', 'select', 'statustype', 'subtype', 'contraorder',
+      'tradeexecutetime', 'ourcomment', 'orderstate'
+    ];
+
+    const state = {
+      ws: null,
+      upserts: 0,
+      deletes: 0,
+      connected: false,
+      rowIds: new Set(),
+    };
+
+    const el = (id) => document.getElementById(id);
+
+    function formatUnix(params) {
+      const value = Number(params.value || 0);
+      if (!value) return '';
+      try { return new Date(value * 1000).toLocaleString(); }
+      catch { return params.value; }
+    }
+
+    function numberFormatter(params) {
+      const v = params.value;
+      if (v === undefined || v === null || v === '') return '';
+      const n = Number(v);
+      if (!Number.isFinite(n)) return v;
+      return n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+    }
+
+    const columnDefs = orderFields.map((field) => ({
+      field,
+      headerName: field,
+      filter: true,
+      sortable: true,
+      resizable: true,
+      valueFormatter: field === 'time' || field === 'tradeexecutetime'
+        ? formatUnix
+        : ['volume', 'price'].includes(field) ? numberFormatter : undefined,
+    }));
+
+    const gridOptions = {
+      columnDefs,
+      rowData: [],
+      getRowId: params => String(params.data.id || params.data.order),
+      animateRows: true,
+      pagination: true,
+      paginationPageSize: 100,
+      defaultColDef: {
+        minWidth: 110,
+        flex: 1,
+      },
+    };
+
+    const gridApi = agGrid.createGrid(el('grid'), gridOptions);
+
+    function logEvent(message) {
+      const box = el('eventLog');
+      const line = `[${new Date().toLocaleTimeString()}] ${message}`;
+      box.textContent = `${line}\n${box.textContent}`.slice(0, 5000);
+    }
+
+    function setStatus(message, kind = 'warn') {
+      const s = el('status');
+      s.textContent = message;
+      s.className = kind === 'ok' ? 'status-ok' : kind === 'err' ? 'status-err' : 'status-warn';
+      el('lastEvent').textContent = new Date().toLocaleTimeString();
+      logEvent(message);
+    }
+
+    function setConnected(connected) {
+      state.connected = connected;
+      el('connectBtn').disabled = connected;
+      el('disconnectBtn').disabled = !connected;
+    }
+
+    function updateCounts(total) {
+      if (typeof total === 'number') el('rowCount').textContent = String(total);
+      el('upsertCount').textContent = String(state.upserts);
+      el('deleteCount').textContent = String(state.deletes);
+    }
+
+    function connect() {
+      const url = el('url').value.trim() || 'wss://auttrading.com:86';
+      const login = el('login').value.trim();
+      const password = el('password').value;
+      const serialNo = el('serialNo').value.trim() || '*';
+
+      if (!login || !password) {
+        setStatus('Enter username and password first', 'err');
+        return;
+      }
+
+      if (state.ws) {
+        try { state.ws.close(); } catch (_) {}
+      }
+
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${location.host}/ws/orders`;
+      const ws = new WebSocket(wsUrl);
+      state.ws = ws;
+      state.rowIds.clear();
+      state.upserts = 0;
+      state.deletes = 0;
+      gridApi.setGridOption('rowData', []);
+      updateCounts(0);
+
+      setStatus('Connecting to local dashboard server...', 'warn');
+      setConnected(true);
+
+      ws.onopen = () => {
+        setStatus('Connected to dashboard server. Logging into Orika...', 'warn');
+        ws.send(JSON.stringify({ action: 'connect', url, login, password, serialNo }));
+      };
+
+      ws.onmessage = (event) => {
+        let msg;
+        try { msg = JSON.parse(event.data); }
+        catch { console.log('Non JSON message', event.data); return; }
+
+        if (msg.event === 'login_status') {
+          setStatus(`Orika login: ${msg.status}`, msg.status === 'success' ? 'ok' : 'err');
+        } else if (msg.event === 'subscribed') {
+          setStatus(`Subscribed: ${msg.request}`, 'ok');
+        } else if (msg.event === 'status') {
+          setStatus(msg.message, 'warn');
+        } else if (msg.event === 'server_message') {
+          setStatus(JSON.stringify(msg.message), 'warn');
+        } else if (msg.event === 'orders') {
+          if (msg.upserts && msg.upserts.length) {
+            const addRows = [];
+            const updateRows = [];
+            for (const row of msg.upserts) {
+              const id = String(row.id || row.order);
+              row.id = id;
+              if (state.rowIds.has(id)) updateRows.push(row);
+              else {
+                state.rowIds.add(id);
+                addRows.push(row);
+              }
+            }
+            if (updateRows.length) gridApi.applyTransaction({ update: updateRows });
+            if (addRows.length) gridApi.applyTransaction({ add: addRows });
+            state.upserts += msg.upserts.length;
+          }
+          if (msg.deletes && msg.deletes.length) {
+            const removeRows = msg.deletes.map(id => {
+              const sid = String(id);
+              state.rowIds.delete(sid);
+              return { id: sid, order: id };
+            });
+            gridApi.applyTransaction({ remove: removeRows });
+            state.deletes += msg.deletes.length;
+          }
+          updateCounts(msg.total);
+          setStatus('Live orders updating', 'ok');
+        } else if (msg.event === 'error') {
+          setStatus(msg.message, 'err');
+        } else if (msg.event === 'closed') {
+          setStatus('Orika connection closed', 'warn');
+          setConnected(false);
+        }
+      };
+
+      ws.onerror = () => {
+        setStatus('Browser WebSocket error', 'err');
+      };
+
+      ws.onclose = () => {
+        setConnected(false);
+        if (state.connected) setStatus('Dashboard WebSocket closed', 'warn');
+      };
+    }
+
+    function disconnect() {
+      if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+        state.ws.send(JSON.stringify({ action: 'disconnect' }));
+        state.ws.close();
+      }
+      setConnected(false);
+      setStatus('Disconnected', 'warn');
+    }
+
+    el('connectBtn').addEventListener('click', connect);
+    el('disconnectBtn').addEventListener('click', disconnect);
+    el('password').addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') connect();
+    });
+  </script>
+</body>
+</html>

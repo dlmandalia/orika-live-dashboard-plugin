@@ -1,0 +1,9 @@
+name: orika-live-dashboard
+version: 1.0.0
+description: "Orika live orders and live deals AG Grid dashboard. Starts a local browser dashboard that connects to Orika WebSocket with user-entered credentials; credentials are not saved."
+author: Dipen / Hermes Agent
+kind: general
+provides_tools:
+  - orika_dashboard_start
+  - orika_dashboard_status
+  - orika_dashboard_stop

@@ -1,0 +1,24 @@
+name: smoke
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile plugin and app
+        run: |
+          python -m py_compile __init__.py schemas.py tools.py app/live_orders_server.py
+      - name: Check expected files
+        run: |
+          test -f plugin.yaml
+          test -f app/live_orders.html
+          test -f app/live_deals.html
+          test -f app/generated/clientmessage_pb2.py
